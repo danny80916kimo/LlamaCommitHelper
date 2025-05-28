@@ -31,7 +31,7 @@ struct LLMService {
         """
         
         let requestBody: [String: Any] = [
-            "model": "llama-2-70b-chat",
+            "model": "qwen2.5-7b-instruct-1m",
             "messages": [
                 ["role": "system", "content": "You are a helpful assistant that generates commit messages based on git diffs."],
                 ["role": "user", "content": prompt]

@@ -127,20 +127,27 @@ struct LlamaCommitHelper: ParsableCommand {
         }
         llmSemaphore.wait()
         
-        if let errorMessage = errorMessage {
+        if let errorMessage {
             print("錯誤：無法連接到 LLM Studio 服務")
             print("請確保 LLM Studio 服務正在運行於 \(apiURL)")
             print("詳細錯誤：\(errorMessage)")
             throw ValidationError(errorMessage)
         }
-        guard let commitMessage = commitMessage else {
+        guard let commitMessage else {
             print("錯誤：無法生成 commit message")
             throw ValidationError("無法生成 commit message")
         }
         
+        print("\n生成的 commit message:")
+        print(commitMessage)
+        
         if dryRun {
-            print("\n生成的 commit message:")
-            print(commitMessage)
+            return
+        }
+
+        print("\n你要繼續用這個 message commit 嗎？ (y/N): ", terminator: "")
+        guard let userInput = readLine(), userInput.lowercased() == "y" else {
+            print("已取消 commit。")
             return
         }
         
@@ -168,4 +175,6 @@ struct LlamaCommitHelper: ParsableCommand {
             print("錯誤：創建 commit 失敗")
         }
     }
-} 
+}
+
+LlamaCommitHelper.main()
