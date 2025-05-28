@@ -133,10 +133,18 @@ struct LlamaCommitHelper: ParsableCommand {
             print("詳細錯誤：\(errorMessage)")
             throw ValidationError(errorMessage)
         }
+        commitMessage = commitMessage?
+            .components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
         guard let commitMessage else {
             print("錯誤：無法生成 commit message")
             throw ValidationError("無法生成 commit message")
         }
+        
+        
         
         print("\n生成的 commit message:")
         print(commitMessage)
