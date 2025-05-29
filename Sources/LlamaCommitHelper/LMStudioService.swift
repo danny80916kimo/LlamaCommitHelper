@@ -140,4 +140,41 @@ struct LMStudioService {
 
         return content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
     }
+
+    func generateMessage(token: String) async throws -> String {
+        guard let url = URL(string: "\(baseURL)/v1/chat/completions") else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let apiKey, !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        let requestBody: [String: Any] = [
+            "model": modelName ?? "qwen2.5-7b-instruct-1m",
+            "messages": [
+                ["role": "system", "content": "You are a helpful assistant that generates concise summaries of code changes."],
+                ["role": "user", "content": token],
+            ],
+            "temperature": 0.7,
+            "max_tokens": 100,
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+
+        guard let response = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = response["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let content = message["content"] as? String
+        else {
+            throw URLError(.badServerResponse)
+        }
+
+        return content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+    }
 }
