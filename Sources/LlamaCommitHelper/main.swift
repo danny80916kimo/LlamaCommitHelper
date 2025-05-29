@@ -3,7 +3,7 @@ import ArgumentParser
 
 struct LlamaCommitHelper: ParsableCommand {
     static var configuration = CommandConfiguration(
-        commandName: "llama-commit",
+        commandName: "meepoo",
         abstract: "Generate commit messages using LLM Studio"
     )
     
@@ -17,6 +17,7 @@ struct LlamaCommitHelper: ParsableCommand {
     var dryRun: Bool = false
     
     func run() throws {
+        let llmSemaphore = DispatchSemaphore(value: 0)
         print("正在檢查 LLM Studio 服務...")
         
         // 檢查 LLM Studio 服務是否在運行（同步 + timeout）
@@ -100,7 +101,7 @@ struct LlamaCommitHelper: ParsableCommand {
         
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard let diff = String(data: data, encoding: .utf8) else {
-            print("錯誤：無法讀取 git diff")
+            print("錯誤：無法讀取 git diff 請檢查git環境位置")
             throw ValidationError("無法讀取 git diff")
         }
         
@@ -109,14 +110,38 @@ struct LlamaCommitHelper: ParsableCommand {
             print("請先使用 'git add' 將要提交的檔案加入暫存區")
             return
         }
+        let parsedDiffs = parseGitDiff(diff)
         
         print("正在連接 LLM Studio 服務...")
-        let llmSemaphore = DispatchSemaphore(value: 0)
+        let llmService = LMStudioService(baseURL: apiURL, apiKey: apiKey)
+        let repo = DefaultLLMRepository(service: llmService)
+        
+        
+        var allHunkComments: [String] = []
+        Task{
+            print("正在生成 hunk message...")
+            for file in parsedDiffs {
+                for hunk in file.hunks {
+                    let prompt = "以下是檔案 \(file.filePath) 的變更區塊（\(hunk.header)）：\n\(hunk.content)\n請用一句話說明這段變更的用途。"
+                    let hunkComment = try await repo.generateMessage(token: prompt)
+                    allHunkComments.append(hunkComment)
+                    // 儲存起來，最後再統整所有 hunkComment
+                }
+            }
+            llmSemaphore.signal()
+        }
+        llmSemaphore.wait()
+        
+        print("正在生成 hunk message...")
+        print(allHunkComments)
+        
+        
+        
         var commitMessage: String? = nil
         var errorMessage: String? = nil
+        
         Task {
             do {
-                let llmService = LLMService(baseURL: apiURL, apiKey: apiKey)
                 print("正在生成 commit message...")
                 let msg = try await llmService.generateCommitMessage(from: diff)
                 commitMessage = msg
