@@ -5,7 +5,7 @@
 ## 安裝
 
 1. 確保你已經安裝了 Swift 5.9 或更高版本
-2. 克隆這個倉庫
+2. Clone這個Repo
 3. 在專案目錄中運行：
    ```bash
    swift build -c release
