@@ -1,4 +1,4 @@
-# meepoo
+# meepoo 咩噗 說出來
 
 一個使用 LLM Studio 來生成 Git commit messages 的命令行工具。
 
