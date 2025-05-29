@@ -34,7 +34,6 @@ meepoo
 
 選項：
 - `--api-url`: LLM Studio API 的 URL（預設：http://localhost:1234）
-- `--api-key`: LLM Studio API 的密鑰（必需）
 - `--dry-run`: 只顯示生成的 commit message，不實際提交
 
 ## 工作流程
