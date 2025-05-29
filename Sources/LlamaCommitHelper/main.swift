@@ -124,6 +124,8 @@ struct LlamaCommitHelper: ParsableCommand {
                 for hunk in file.hunks {
                     let prompt = "以下是檔案 \(file.filePath) 的變更區塊（\(hunk.header)）：\n\(hunk.content)\n請用一句話說明這段變更的用途。"
                     let hunkComment = try await repo.generateMessage(token: prompt)
+                    print("檔案:\(file.filePath)")
+                    print("總結:\(hunkComment)")
                     allHunkComments.append(hunkComment)
                     // 儲存起來，最後再統整所有 hunkComment
                 }
@@ -132,18 +134,13 @@ struct LlamaCommitHelper: ParsableCommand {
         }
         llmSemaphore.wait()
         
-        print("正在生成 hunk message...")
-        print(allHunkComments)
-        
-        
-        
         var commitMessage: String? = nil
         var errorMessage: String? = nil
         
         Task {
             do {
                 print("正在生成 commit message...")
-                let msg = try await llmService.generateCommitMessage(from: diff)
+                let msg = try await llmService.generateCommitMessage(from: allHunkComments)
                 commitMessage = msg
             } catch {
                 errorMessage = String(describing: error)
