@@ -13,7 +13,7 @@ struct CommitMessageGenerationUseCase {
         
         for file in fileDiffs {
             for hunk in file.hunks {
-                let prompt = "以下是檔案 \(file.filePath) 的變更區塊（\(hunk.header)）：\n\(hunk.content)\n請用一句話說明這段變更的用途。"
+                let prompt = "Below is a code change hunk from the file \(file.filePath) (hunk header: \(hunk.header)):\n \(hunk.content)\n Please describe the purpose of this change in a single sentence."
                 let hunkComment = try await llmService.generateMessage(token: prompt)
                 print("檔案: \(file.filePath)")
                 print("總結: \(hunkComment)")
