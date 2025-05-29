@@ -43,11 +43,10 @@ meepoo
 2. 運行 `meepoo` 命令
 3. 工具會自動：
    - 讀取暫存的更改
-   - 使用 LLM Studio 生成 commit message
+   - 使用 LM Studio 生成 commit message
    - 創建 commit
 
 ## 注意事項
 
-- 確保你的 LLM Studio 服務正在運行
-- 需要有正確的 API 密鑰
+- 確保你的 LM Studio 服務正在運行
 - 需要 macOS 13.0 或更高版本
