@@ -9,7 +9,8 @@
 import Foundation
 import ArgumentParser
 
-struct LlamaCommitHelper: ParsableCommand {
+@main
+struct LlamaCommitHelper: AsyncParsableCommand {
     static var configuration = CommandConfiguration(
         commandName: "meepoo",
         abstract: "Generate commit messages using LLM Studio"
@@ -24,138 +25,22 @@ struct LlamaCommitHelper: ParsableCommand {
     @Flag(name: .long, help: "Show the generated commit message without committing")
     var dryRun: Bool = false
     
-    func run() throws {
-        let llmSemaphore = DispatchSemaphore(value: 0)
+    func run() async throws {
         print("正在檢查 LLM Studio 服務...")
+        try await LLMServiceCheckUseCase(apiURL: apiURL).check()
+        try GitRepositoryCheckUseCase().check()
+        let diff = try GitDiffUseCase().getStagedDiff()
         
-        // 檢查 LLM Studio 服務是否在運行（同步 + timeout）
-        guard let url = URL(string: "\(apiURL)/v1/chat/completions") else {
-            print("錯誤：無效的 API URL")
-            throw ValidationError("無效的 API URL")
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 3 // 3秒 timeout
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // 傳送一個最小合法 body
-        let dummyBody: [String: Any] = [
-            "model": "dummy",
-            "messages": [["role": "user", "content": "ping"]]
-        ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: dummyBody)
-        
-        let semaphore = DispatchSemaphore(value: 0)
-        var isServiceAvailable = false
-        var serviceError: Error?
-        var statusCode: Int? = nil
-        
-        let task = URLSession.shared.dataTask(with: request) { _, response, error in
-            if let httpResponse = response as? HTTPURLResponse {
-                statusCode = httpResponse.statusCode
-                isServiceAvailable = (200...299).contains(httpResponse.statusCode)
-            }
-            serviceError = error
-            semaphore.signal()
-        }
-        task.resume()
-        let timeoutResult = semaphore.wait(timeout: .now() + 5)
-        
-        if timeoutResult == .timedOut {
-            print("錯誤：連線 LLM Studio 服務逾時 (timeout)")
-            print("請確保 LLM Studio 服務正在運行於 \(apiURL)")
-            throw ValidationError("LLM Studio 服務逾時")
-        }
-        
-        if !isServiceAvailable {
-            print("錯誤：無法連接到 LLM Studio 服務")
-            print("請確保 LLM Studio 服務正在運行於 \(apiURL)")
-            if let code = statusCode {
-                print("HTTP 狀態碼：\(code)")
-            }
-            if let error = serviceError {
-                print("詳細錯誤：\(error.localizedDescription)")
-            }
-            throw ValidationError("LLM Studio 服務不可用")
-        }
-        
-        // 檢查 git 是否在 git 倉庫中
-        let gitCheckProcess = Process()
-        gitCheckProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        gitCheckProcess.arguments = ["rev-parse", "--is-inside-work-tree"]
-        
-        let gitCheckPipe = Pipe()
-        gitCheckProcess.standardOutput = gitCheckPipe
-        gitCheckProcess.standardError = gitCheckPipe
-        
-        try gitCheckProcess.run()
-        gitCheckProcess.waitUntilExit()
-        
-        if gitCheckProcess.terminationStatus != 0 {
-            print("錯誤：當前目錄不是 git 倉庫")
-            throw ValidationError("當前目錄不是 git 倉庫")
-        }
-        
-        // Get git diff
-        print("正在讀取暫存的更改...")
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["diff", "--staged"]
-        
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        try process.run()
-        process.waitUntilExit()
-        
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let diff = String(data: data, encoding: .utf8) else {
-            print("錯誤：無法讀取 git diff 請檢查git環境位置")
-            throw ValidationError("無法讀取 git diff")
-        }
-        
-        if diff.isEmpty {
-            print("錯誤：沒有找到暫存的更改")
-            print("請先使用 'git add' 將要提交的檔案加入暫存區")
-            return
-        }
-        let parsedDiffs = parseGitDiff(diff)
-        
-        print("正在連接 LLM Studio 服務...")
-        let llmService = LMStudioService(baseURL: apiURL, apiKey: apiKey)
-        let repo = DefaultLLMRepository(service: llmService)
-        
-        
-        var allHunkComments: [String] = []
-        Task{
-            print("正在生成 hunk message...")
-            for file in parsedDiffs {
-                for hunk in file.hunks {
-                    let prompt = "以下是檔案 \(file.filePath) 的變更區塊（\(hunk.header)）：\n\(hunk.content)\n請用一句話說明這段變更的用途。"
-                    let hunkComment = try await repo.generateMessage(token: prompt)
-                    print("檔案:\(file.filePath)")
-                    print("總結:\(hunkComment)")
-                    allHunkComments.append(hunkComment)
-                    // 儲存起來，最後再統整所有 hunkComment
-                }
-            }
-            llmSemaphore.signal()
-        }
-        llmSemaphore.wait()
+        let lmStudioService = LMStudioService(baseURL: apiURL, apiKey: apiKey)
         
         var commitMessage: String? = nil
         var errorMessage: String? = nil
-        
-        Task {
-            do {
-                print("正在生成 commit message...")
-                let msg = try await llmService.generateCommitMessage(from: allHunkComments)
-                commitMessage = msg
-            } catch {
-                errorMessage = String(describing: error)
-            }
-            llmSemaphore.signal()
+
+        do {
+            commitMessage = try await CommitMessageGenerationUseCase(llmService: lmStudioService).generate(from: diff)
+        } catch {
+            errorMessage = String(describing: error)
         }
-        llmSemaphore.wait()
         
         if let errorMessage {
             print("錯誤：無法連接到 LLM Studio 服務")
@@ -163,18 +48,12 @@ struct LlamaCommitHelper: ParsableCommand {
             print("詳細錯誤：\(errorMessage)")
             throw ValidationError(errorMessage)
         }
-        commitMessage = commitMessage?
-            .components(separatedBy: .newlines)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("```") }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
         
         guard let commitMessage else {
             print("錯誤：無法生成 commit message")
             throw ValidationError("無法生成 commit message")
         }
-        
-        
         
         print("\n生成的 commit message:")
         print(commitMessage)

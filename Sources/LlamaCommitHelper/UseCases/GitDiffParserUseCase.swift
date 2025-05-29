@@ -12,52 +12,51 @@ struct GitDiffParserUseCase {
     }
     
     func parse(_ diff: String) -> [FileDiff] {
-        var fileDiffs: [FileDiff] = []
-        var currentFilePath: String?
-        var currentHunks: [Hunk] = []
-        var currentHunkHeader: String?
-        var currentHunkContent = ""
-        
+        var results: [FileDiff] = []
+
         let lines = diff.components(separatedBy: .newlines)
-        
+        var currentFile: String?
+        var hunks: [Hunk] = []
+        var currentHunkHeader: String?
+        var currentHunkLines: [String] = []
+
         for line in lines {
-            if line.hasPrefix("diff --git") {
-                // Save previous file if exists
-                if let filePath = currentFilePath, !currentHunks.isEmpty {
-                    fileDiffs.append(FileDiff(filePath: filePath, hunks: currentHunks))
+            if line.starts(with: "diff --git ") {
+                // 存下前一個檔案的 diff
+                if let file = currentFile, !hunks.isEmpty {
+                    results.append(FileDiff(filePath: file, hunks: hunks))
                 }
-                
-                // Start new file
-                let components = line.components(separatedBy: " ")
-                if components.count >= 3 {
-                    currentFilePath = components[2].replacingOccurrences(of: "b/", with: "")
+
+                // 取得檔案路徑
+                if let fileMatch = line.components(separatedBy: " ").last {
+                    currentFile = fileMatch.replacingOccurrences(of: "b/", with: "")
                 }
-                currentHunks = []
-                currentHunkHeader = nil
-                currentHunkContent = ""
-            } else if line.hasPrefix("@@") {
-                // Save previous hunk if exists
-                if let header = currentHunkHeader, !currentHunkContent.isEmpty {
-                    currentHunks.append(Hunk(header: header, content: currentHunkContent))
+
+                hunks = []
+            } else if line.starts(with: "@@") {
+                if let headerStart = line.range(of: "@@"), let headerEnd = line.range(of: "@@", options: .backwards), headerStart != headerEnd {
+                    let header = String(line[headerStart.upperBound..<headerEnd.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    currentHunkHeader = header
+                    let firstLineContent = String(line[headerEnd.upperBound..<line.endIndex])
+                    currentHunkLines.append(firstLineContent)
+                    hunks.append(Hunk(header: header, content: currentHunkLines.joined(separator: "\n")))
+                    currentHunkLines = []
+                } else {
+                    currentHunkHeader = line
                 }
-                
-                // Start new hunk
-                currentHunkHeader = line
-                currentHunkContent = ""
-            } else if currentHunkHeader != nil {
-                // Add line to current hunk content
-                currentHunkContent += line + "\n"
+            } else {
+                currentHunkLines.append(line)
             }
         }
-        
-        // Save last file and hunk
-        if let filePath = currentFilePath, !currentHunks.isEmpty {
-            if let header = currentHunkHeader, !currentHunkContent.isEmpty {
-                currentHunks.append(Hunk(header: header, content: currentHunkContent))
-            }
-            fileDiffs.append(FileDiff(filePath: filePath, hunks: currentHunks))
+
+        // 加入最後一個 hunk 和檔案
+        if let header = currentHunkHeader {
+            hunks.append(Hunk(header: header, content: currentHunkLines.joined(separator: "\n")))
         }
-        
-        return fileDiffs
+        if let file = currentFile {
+            results.append(FileDiff(filePath: file, hunks: hunks))
+        }
+
+        return results
     }
 } 
